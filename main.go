@@ -1,13 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 )
 
 type ID string
@@ -37,17 +40,11 @@ type model struct {
 	composition textinput.Model
 }
 
-func initialModel() model {
+func initialModel(me me) model {
 	comp := textinput.New()
 	comp.Focus()
-	myName := textinput.New()
-	myName.SetValue("anon")
 	return model{
-		me: me{
-			id:     "0xlolol",
-			name:   myName,
-			status: textinput.New(),
-		},
+		me: me,
 		guys: []guy{
 			guy{
 				id:     "1",
@@ -85,12 +82,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
 		case "enter":
-			if m.composition.Focused() {
+			switch {
+			case m.composition.Focused():
 				m.messages = append(m.messages, message{
 					sender:  m.me.id,
 					message: m.composition.Value(),
 				})
 				m.composition.Reset()
+			case m.me.name.Focused(), m.me.status.Focused():
+				if err := save_id(m.me); err != nil {
+					return m, tea.Quit
+				}
+				m.me.name.Blur()
+				m.me.status.Blur()
+				m.composition.Focus()
 			}
 		case "tab":
 			switch {
@@ -99,9 +104,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.me.name.Focus()
 			case m.me.name.Focused():
 				m.me.name.Blur()
+				if err := save_id(m.me); err != nil {
+					return m, tea.Quit
+				}
 				m.me.status.Focus()
 			case m.me.status.Focused():
 				m.me.status.Blur()
+				if err := save_id(m.me); err != nil {
+					return m, tea.Quit
+				}
 				m.composition.Focus()
 			}
 		}
@@ -169,8 +180,79 @@ func (m model) View() string {
 	return b.String()
 }
 
+func save_filename() (string, error) {
+	d, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(path.Join(d, "exochat"), 0755); err != nil {
+		return "", err
+	}
+	return path.Join(d, "exochat", "id.json"), nil
+}
+
+func save_id(m me) error {
+	fname, err := save_filename()
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(fname)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return json.NewEncoder(f).Encode(map[string]string{
+		"id":     string(m.id),
+		"name":   m.name.Value(),
+		"status": m.status.Value(),
+	})
+}
+
+func load_id() (*me, error) {
+	fname, err := save_filename()
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(fname)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var x struct {
+		ID     ID
+		Name   string
+		Status string
+	}
+	if err := json.NewDecoder(f).Decode(&x); err != nil {
+		return nil, err
+	}
+	result := &me{
+		id:     x.ID,
+		name:   textinput.New(),
+		status: textinput.New(),
+	}
+	result.name.SetValue(x.Name)
+	result.status.SetValue(x.Status)
+	return result, nil
+}
+
 func main() {
-	if _, err := tea.NewProgram(initialModel()).Run(); err != nil {
+	myself, err := load_id()
+	if err != nil {
+		if os.IsNotExist(err) {
+			name := textinput.New()
+			name.SetValue("anon")
+			myself = &me{
+				id:     ID(uuid.NewString()),
+				name:   name,
+				status: textinput.New(),
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+	}
+	if _, err := tea.NewProgram(initialModel(*myself)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
