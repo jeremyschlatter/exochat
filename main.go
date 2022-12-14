@@ -76,6 +76,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
+		case "enter":
+			m.messages = append(m.messages, message{
+				sender:  m.me.id,
+				message: m.composition.Value(),
+			})
+			m.composition.Reset()
 		}
 	}
 
@@ -116,7 +122,13 @@ func (m model) View() string {
 		for _, guy := range m.guys {
 			nameByID[guy.id] = guy.name
 		}
-		for _, msg := range m.messages {
+		nameByID[m.me.id] = m.me.name
+		msgs := m.messages
+		window_len := 8
+		if len(msgs) > window_len {
+			msgs = msgs[len(msgs)-window_len:]
+		}
+		for _, msg := range msgs {
 			name, ok := nameByID[msg.sender]
 			if !ok {
 				name = fmt.Sprintf("<user %v>", msg.sender)
