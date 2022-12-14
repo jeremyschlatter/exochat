@@ -24,8 +24,14 @@ type message struct {
 	message string
 }
 
+type me struct {
+	id     ID
+	name   textinput.Model
+	status textinput.Model
+}
+
 type model struct {
-	me          guy
+	me          me
 	guys        []guy
 	messages    []message
 	composition textinput.Model
@@ -34,11 +40,13 @@ type model struct {
 func initialModel() model {
 	comp := textinput.New()
 	comp.Focus()
+	myName := textinput.New()
+	myName.SetValue("anon")
 	return model{
-		me: guy{
+		me: me{
 			id:     "0xlolol",
-			name:   "anon",
-			online: true,
+			name:   myName,
+			status: textinput.New(),
 		},
 		guys: []guy{
 			guy{
@@ -77,17 +85,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
 		case "enter":
-			m.messages = append(m.messages, message{
-				sender:  m.me.id,
-				message: m.composition.Value(),
-			})
-			m.composition.Reset()
+			if m.composition.Focused() {
+				m.messages = append(m.messages, message{
+					sender:  m.me.id,
+					message: m.composition.Value(),
+				})
+				m.composition.Reset()
+			}
+		case "tab":
+			switch {
+			case m.composition.Focused():
+				m.composition.Blur()
+				m.me.name.Focus()
+			case m.me.name.Focused():
+				m.me.name.Blur()
+				m.me.status.Focus()
+			case m.me.status.Focused():
+				m.me.status.Blur()
+				m.composition.Focus()
+			}
 		}
 	}
 
-	var result tea.Cmd
-	m.composition, result = m.composition.Update(msg)
-	return m, result
+	var result [3]tea.Cmd
+	m.composition, result[0] = m.composition.Update(msg)
+	m.me.name, result[1] = m.me.name.Update(msg)
+	m.me.status, result[2] = m.me.status.Update(msg)
+	return m, tea.Batch(result[:]...)
 }
 
 var (
@@ -98,9 +122,9 @@ var (
 func (m model) View() string {
 	// me
 	var b strings.Builder
-	b.WriteString(m.me.name)
+	b.WriteString(m.me.name.View())
 	b.WriteString(" ")
-	b.WriteString(m.me.status)
+	b.WriteString(m.me.status.View())
 	b.WriteString("\n\n")
 
 	// guys
@@ -122,7 +146,7 @@ func (m model) View() string {
 		for _, guy := range m.guys {
 			nameByID[guy.id] = guy.name
 		}
-		nameByID[m.me.id] = m.me.name
+		nameByID[m.me.id] = m.me.name.Value()
 		msgs := m.messages
 		window_len := 8
 		if len(msgs) > window_len {
